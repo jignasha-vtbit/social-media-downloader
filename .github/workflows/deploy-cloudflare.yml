@@ -1,5 +1,9 @@
 name: Deploy to Cloudflare Workers
 
+# Fork for All HD Video Downloader: only builds + deploys the Worker.
+# Removed: IndexNow ping, smoke test and GitHub release jobs (they target the
+# original socialdownloader.space site).
+
 # Push to main deploys. Pull requests build and size-check only — never deploy,
 # so a PR can't take production down or race the live Worker.
 on:
@@ -90,82 +94,3 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
-      # Runs after the deploy is live, because it reads the deployed sitemap to
-      # collect the URL set. The script swallows its own failures — a flaky
-      # search-engine endpoint must never fail a deploy.
-      - name: Ping IndexNow
-        if: github.event_name != 'pull_request'
-        run: node scripts/indexnow.mjs --force
-
-  # The deploy is not the verification. This is: 148 assertions against the
-  # live origin — every API route, the static-asset headers that prove pages are
-  # not being served by Worker code, and an explicit look for 1101/1102, the
-  # exception and CPU-limit codes that only appear in production.
-  #
-  # After the deploy rather than before it, because there is nothing to assert
-  # against until the version is live; a failure here is a page, not a gate.
-  # No install: the script has no imports at all.
-  smoke:
-    needs: deploy
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-
-    steps:
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-
-      - name: Smoke the deployment
-        run: node scripts/cf-smoke.mjs
-
-  # A public, dated record of what each deploy carried. The repo is public and
-  # the site has no version number, so without this the only way to see what a
-  # deploy changed is the commit log.
-  #
-  # Its own job for one reason: publishing needs contents:write, and widening
-  # the deploy job would hand that token to every build script it runs off the
-  # lockfile. `needs: deploy` means a release only ever describes something
-  # that actually reached production.
-  release:
-    needs: deploy
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          # Tags and full history: the notes are the commits since the previous
-          # `v*` tag, and the default shallow clone has neither.
-          fetch-depth: 0
-          # `gh release create` authenticates with GH_TOKEN and creates the tag
-          # through the API, so nothing here pushes over git.
-          persist-credentials: false
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-
-      - name: Build release notes
-        id: notes
-        run: |
-          node scripts/release-notes.mjs > release-notes.md
-          cat release-notes.md
-        env:
-          GITHUB_REPOSITORY: ${{ github.repository }}
-
-      # Skipped when the push carried nothing but docs, tests, tooling or
-      # refactors — those are counted in the notes of the next release that has
-      # something to say, rather than getting one of their own.
-      - name: Publish release
-        if: steps.notes.outputs.has_visible == 'true'
-        run: |
-          gh release create "$TAG" --title "$TAG" --notes-file release-notes.md --target "$GITHUB_SHA"
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.notes.outputs.tag }}
