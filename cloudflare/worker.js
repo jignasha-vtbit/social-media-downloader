@@ -60,7 +60,7 @@ const WEBHOOK_PATH = '/api/billing/webhook'
 const CANONICAL_ORIGIN = 'https://www.socialdownloader.space'
 
 function isWorkersDev(hostname) {
-  return hostname.endsWith('.workers.dev')
+  return false
 }
 
 /** HEAD is served by the GET handler, as it is for any ordinary route. */
